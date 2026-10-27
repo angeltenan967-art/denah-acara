@@ -1,8 +1,10 @@
 import { getStore } from "@netlify/blobs";
 
 const CAP = 5;                                   // kursi per meja
-const VIP = [1, 2, 3, 4, 6];                     // meja oranye (guru)
-const REG = [5,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]; // meja hijau (siswa)
+const GURU = [1,2,3,4,5,6,7,8,9,10,11];          // meja guru
+const SISWA = [12,13,14,15,16,17,18,19,20,21,22,23,24,25]; // meja siswa, mulai dari meja 12
+const MAXT = { 1: 4, 2: 4, 3: 3, 4: 3 };         // batas isi meja 1-4 (guru SMP); meja lain 5
+const capOf = (t) => MAXT[t] ?? CAP;
 const store = getStore({ name: "acara", consistency: "strong" });
 
 const J = (o, c = 200) => new Response(JSON.stringify(o), { status: c, headers: { "content-type": "application/json" } });
@@ -17,10 +19,10 @@ function usage(regs) {
 }
 function plan(n, pool, u) {
   if (n < 1) return [];
-  for (const t of pool) if (CAP - (u[t] || 0) >= n) return [{ t, n }];   // satu meja kalau muat
+  for (const t of pool) if (capOf(t) - (u[t] || 0) >= n) return [{ t, n }];   // satu meja kalau muat
   const o = []; let left = n;
   for (const t of pool) {
-    const f = CAP - (u[t] || 0);
+    const f = capOf(t) - (u[t] || 0);
     if (f > 0) { const k = Math.min(f, left); o.push({ t, n: k }); left -= k; if (!left) return o; }
   }
   return null;
@@ -57,10 +59,11 @@ export default async (req) => {
       const ex = regs.find((x) => x.nm === norm(school));
       if (ex) return J({ ok: 1, dup: 1, data: pub(ex) });
       const u = usage(regs);
-      let g = plan(ng, VIP, u); if (g === null) g = plan(ng, REG, u);
+      const g = plan(ng, GURU, u);
       if (g) for (const x of g) u[x.t] = (u[x.t] || 0) + x.n;
-      let s = plan(ns, REG, u); if (s === null) s = plan(ns, VIP, u);
-      if (!g || !s) return J({ err: "Kursi tidak cukup. Hubungi panitia." }, 409);
+      const s = plan(ns, SISWA, u);
+      if (!g) return J({ err: "Kursi meja guru tidak cukup. Hubungi panitia." }, 409);
+      if (!s) return J({ err: "Kursi meja siswa tidak cukup. Hubungi panitia." }, 409);
       const rec = { nm: norm(school), school, siswa: ns, guru: ng, gp, stu, plan: { guru: g, siswa: s }, ts: Date.now() };
       const body = { regs: [...regs, rec] };
       const w = etag ? await store.setJSON("state", body, { onlyIfMatch: etag }) : await store.setJSON("state", body, { onlyIfNew: true });
@@ -85,7 +88,7 @@ export default async (req) => {
 <p>${regs.length} rombongan, ${tot} orang. <a href="?key=${encodeURIComponent(pass)}&csv=1">Unduh CSV</a></p>
 <table border=1 cellpadding=6 style="border-collapse:collapse"><tr><th>Sekolah<th>Siswa<th>Guru<th>Meja guru<th>Meja siswa
 ${regs.map((r) => `<tr><td>${esc(r.school)}<td>${r.siswa}<td>${r.guru}<td>${mj(r.plan.guru)}<td>${mj(r.plan.siswa)}`).join("")}</table>
-<h3>Terisi per meja</h3><p>${[...VIP, ...REG].map((t) => `Meja ${t}: ${u[t] || 0}/${CAP}`).join(" &nbsp; ")}</p>`;
+<h3>Terisi per meja</h3><p>${[...GURU, ...SISWA].map((t) => `Meja ${t}: ${u[t] || 0}/${capOf(t)}`).join(" &nbsp; ")}</p>`;
     return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
   }
   return J({ err: "Tidak ditemukan" }, 404);
